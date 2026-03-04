@@ -102,12 +102,12 @@ select{background:var(--panel);border:1px solid var(--border);border-radius:3px;
 <div class="api-overlay" id="api-overlay">
   <div class="api-box">
     <h2>🌍 Мир живых душ</h2>
-    <p>Симуляция настоящей жизни.<br>Рождение · Любовь · Дружба · Предательство · Смерть.<br><br>Введи ключ Groq чтобы оживить мир.</p>
+    <p>Симуляция настоящей жизни.<br>Рождение · Любовь · Дружба · Предательство · Смерть.<br><br>Введи ключ OpenRouter чтобы оживить мир.</p>
     <div class="api-row">
-      <input class="api-inp" id="api-inp" placeholder="gsk_... (Groq API ключ)">
+      <input class="api-inp" id="api-inp" placeholder="sk-or-... (OpenRouter ключ)">
       <button class="btn btn-gold" onclick="startWorld()">Начать</button>
     </div>
-    <div class="api-note">Бесплатно на <a href="https://console.groq.com" target="_blank">console.groq.com</a> · Без карты · Работает в Казахстане</div>
+    <div class="api-note">Бесплатно на <a href="https://openrouter.ai" target="_blank">openrouter.ai</a> · Без карты · Без суточного лимита</div>
   </div>
 </div>
 <div class="app">
@@ -155,8 +155,8 @@ select{background:var(--panel);border:1px solid var(--border);border-radius:3px;
 </div>
 <script>
 let API_KEY='';
-const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
-const MODEL='llama-3.3-70b-versatile';
+const API_URL='https://openrouter.ai/api/v1/chat/completions';
+const MODEL='meta-llama/llama-3.1-8b-instruct:free';
 const LOC_MAP={'дом':7,'лес':23,'площадь':41,'таверна':59,'библиотека':77};
 const LOC_KEYS=Object.keys(LOC_MAP);
 const WEATHERS=['☀️ Ясно','🌤️ Облачно','🌧️ Дождь','⛅ Переменно','❄️ Снег','🌩️ Гроза'];
@@ -168,7 +168,6 @@ const EMOJIS_F=['👩','🧙‍♀️','🌸','🌙','⭐'];
 const EMOJIS_M=['🧔','👨','⚔️','🔮','🛡️'];
 
 let W={day:1,hour:8,weatherIdx:0,seasonIdx:0,seasonDay:0,nextId:3,logN:0};
-let W_lastLocs={};
 let W_hoursSameWeather=0;
 let npcs={};
 let isLoading=false,autoMode=false,autoTimer=null;
@@ -181,9 +180,8 @@ function mkNPC(id,name,prof,trait,emoji,color,age,loc){
     mood:50+Math.random()*35|0,love:15+Math.random()*30|0,
     health:80+Math.random()*15|0,
     pregnant:false,pregDays:0,pregWith:null,
-    dead:false,deathDay:null,thought:'',action:'осматривается',
-    memory:[],rels:{},ageDays:0,bornDay:1,
-    hoursAtSameLoc:0,lastLoc:loc};
+    dead:false,thought:'',action:'осматривается',
+    memory:[],rels:{},ageDays:0,hoursAtSameLoc:0,lastLoc:loc};
 }
 
 function initNPCs(){
@@ -193,7 +191,7 @@ function initNPCs(){
   };
   npcs[1].rels={2:{type:'acquaintance',str:20}};
   npcs[2].rels={1:{type:'acquaintance',str:20}};
-  npcs[1].memory=['Слышал как где-то поёт красивый голос'];
+  npcs[1].memory=['Слышал красивый голос откуда-то с площади'];
   npcs[2].memory=['Видела задумчивого незнакомца у дома на краю города'];
 }
 
@@ -325,13 +323,10 @@ function floatEmoji(npcId,em){
 function advanceTime(){
   W.hour++;
   W_hoursSameWeather++;
-  // Погода меняется часто — не застреваем
-  if(W_hoursSameWeather>=3){
-    if(Math.random()<0.55){
-      const prev=W.weatherIdx;
-      do{W.weatherIdx=Math.floor(Math.random()*WEATHERS.length);}while(W.weatherIdx===prev);
-      W_hoursSameWeather=0;
-    }
+  if(W_hoursSameWeather>=3&&Math.random()<0.6){
+    const prev=W.weatherIdx;
+    do{W.weatherIdx=Math.floor(Math.random()*WEATHERS.length);}while(W.weatherIdx===prev);
+    W_hoursSameWeather=0;
   }
   if(W.hour>=24){
     W.hour=7;W.day++;W.seasonDay++;
@@ -346,7 +341,6 @@ function advanceTime(){
       if(npc.health<=5&&Math.random()<0.2)killNPC(npc,'от болезни');
     });
   }
-  // Трекаем сколько часов NPC на одном месте
   Object.values(npcs).filter(n=>!n.dead).forEach(n=>{
     if(n.loc===n.lastLoc){n.hoursAtSameLoc=(n.hoursAtSameLoc||0)+1;}
     else{n.hoursAtSameLoc=0;n.lastLoc=n.loc;}
@@ -372,7 +366,7 @@ function giveBirth(mother){
   if(mother){baby.rels[mother.id]={type:'family',str:85};mother.rels[id]={type:'child',str:90};}
   if(father){baby.rels[father.id]={type:'family',str:85};father.rels[id]={type:'child',str:90};}
   npcs[id]=baby;
-  log(`👶 У ${mother.name} родился ребёнок — <b>${name}</b>!${father?' Отец: '+father.name+'.':''}`,'birth','🌱 РОЖДЕНИЕ');
+  log(`👶 У ${mother.name} родился <b>${name}</b>!${father?' Отец: '+father.name+'.':''}`,'birth','🌱 РОЖДЕНИЕ');
   notify('👶',`Родился ${name}!`,'#6ab87a');
   floatEmoji(mother.id,'👶');
   renderAll();
@@ -380,18 +374,28 @@ function giveBirth(mother){
 
 function killNPC(npc,cause){
   if(npc.dead)return;
-  npc.dead=true;npc.deathDay=W.day;
+  npc.dead=true;
   npc.thought='Моя история закончилась...';
   log(`✝️ ${npc.name} умер${npc.age>0?` в ${npc.age} лет`:''} ${cause}.`,'death','💀 СМЕРТЬ');
   notify('💀',`${npc.name} умер ${cause}`,'#c46a6a');
   Object.values(npcs).filter(n=>!n.dead&&n.rels[npc.id]).forEach(n=>{n.mood=clamp(n.mood-20);});
 }
 
-async function callGroq(prompt){
-  const r=await fetch(GROQ_URL,{
+async function callAI(prompt){
+  const r=await fetch(API_URL,{
     method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
-    body:JSON.stringify({model:MODEL,messages:[{role:'user',content:prompt}],temperature:0.95,max_tokens:1800})
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization':'Bearer '+API_KEY,
+      'HTTP-Referer':'https://bosikkkk.github.io',
+      'X-Title':'Мир живых душ'
+    },
+    body:JSON.stringify({
+      model:MODEL,
+      messages:[{role:'user',content:prompt}],
+      temperature:0.95,
+      max_tokens:1800
+    })
   });
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'HTTP '+r.status);}
   const d=await r.json();
@@ -405,60 +409,49 @@ async function runTick(){
   isLoading=true;
   document.getElementById('btn-tick').disabled=true;
   document.getElementById('spinner').classList.add('on');
-
   Object.values(npcs).filter(n=>!n.dead).forEach(n=>{
     n.thinking=true;
     const el=document.getElementById('th-'+n.id);
     if(el){el.textContent='';el.classList.add('thinking');}
   });
-
   advanceTime();updateHeader();
-
   const alive=Object.values(npcs).filter(n=>!n.dead);
   if(!alive.length){isLoading=false;document.getElementById('btn-tick').disabled=false;document.getElementById('spinner').classList.remove('on');return;}
-
   const h=W.hour;
   const tod=h<6?'глубокая ночь':h<10?'утро':h<14?'полдень':h<18?'день':h<22?'вечер':'ночь';
-
   const grps={};
   alive.forEach(n=>{if(!grps[n.loc])grps[n.loc]=[];grps[n.loc].push(n.name);});
   const grpStr=Object.entries(grps).map(([l,ns])=>`${l}:[${ns.join(',')}]`).join(' ');
-
-  // Предупреждения о застрявших NPC
-  const stuckWarnings=alive.filter(n=>(n.hoursAtSameLoc||0)>=3).map(n=>`${n.name} застрял в ${n.loc} уже ${n.hoursAtSameLoc} часов — СРОЧНО выведи его куда-то!`).join(' ');
-
+  const stuck=alive.filter(n=>(n.hoursAtSameLoc||0)>=3).map(n=>`${n.name}(${n.hoursAtSameLoc}ч в ${n.loc})`).join(', ');
   const npcStr=alive.map(n=>{
     const rels=Object.entries(n.rels||{}).map(([tid,r])=>{const t=npcs[tid];return t?`${t.name}(${r.type},${r.str})`:''}).filter(Boolean).join(',');
     return`[${n.id}]${n.name},${n.age}л,${n.prof},${n.trait}|${n.loc}(${n.hoursAtSameLoc||0}ч)|Г${n.hunger}Э${n.energy}Н${n.mood}Л${n.love}З${n.health}${n.pregnant?'|БЕРЕМ':''}${rels?'|'+rels:''}${n.memory.length?'|'+n.memory.slice(-2).join(';'):''}`;
   }).join('\n');
 
-  const prompt=`Ты режиссёр живой драматичной симуляции. Отвечай ТОЛЬКО на русском.
+  const prompt=`Ты режиссёр живой симуляции. Отвечай ТОЛЬКО на русском языке.
 
 Мир: День ${W.day}, ${tod} (${h}:00), ${WEATHERS[W.weatherIdx]}, ${SEASONS[W.seasonIdx]}
 Где кто: ${grpStr}
-${stuckWarnings?'⚠️ ЗАСТРЯЛИ: '+stuckWarnings:''}
+${stuck?'⚠️ ЗАСТРЯЛИ (срочно двигай!): '+stuck:''}
 
-ПЕРСОНАЖИ (формат: [id]имя,возраст,проф,характер|место(часов там)|статы|отношения|память):
+ПЕРСОНАЖИ:
 ${npcStr}
 
-ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА — нарушать нельзя:
-1. ПОГОДА: текущая погода "${WEATHERS[W.weatherIdx]}" — НЕ упоминай её как причину сидеть дома. Даже в дождь люди выходят!
-2. ДВИЖЕНИЕ: каждый NPC кто сидит на одном месте 2+ часов ОБЯЗАН сменить локацию. Без исключений.
-3. ВСТРЕЧИ: если двое в одном месте — они ОБЯЗАНЫ поговорить, поспорить, подружиться или поссориться.
-4. РАЗНООБРАЗИЕ: запрещено делать одно и то же 2 раза подряд.
-5. ИНИЦИАТИВА: если Лира не видела Арона 2+ часа — она идёт его искать (или наоборот).
-6. ДРАМА: каждые несколько ходов — неожиданный поворот: признание, ссора, тайна, открытие, предательство.
-7. ХАРАКТЕР: меланхолик грустит, НО всё равно выходит и действует. Оптимист тянет других за собой.
-8. ДЕТИ играют и шалят. Пожилые дают советы.
+ПРАВИЛА (строго):
+1. Кто сидит на месте 2+ часа — ОБЯЗАН сменить локацию прямо сейчас
+2. Если двое в одном месте — они ОБЯЗАНЫ взаимодействовать
+3. Погода НЕ повод сидеть дома — в любую погоду люди выходят
+4. Запрещено повторять одно действие дважды подряд
+5. Каждые 3-4 хода — драматический поворот (ссора, признание, тайна, предательство)
+6. Оптимист тянет других за собой, меланхолик грустит но всё равно действует
 
 Верни ТОЛЬКО валидный JSON без markdown:
-{"npcs":[{"id":число,"action":"до 8 слов","thought":"живая мысль 1-2 предложения от первого лица","location":"дом/лес/площадь/таверна/библиотека","memory":"новое воспоминание","hunger_change":0,"energy_change":0,"mood_change":0,"love_change":0,"health_change":0,"log":"яркая запись для хроники","rels":[{"tid":число,"type":"friend/love/rival/spouse/acquaintance","delta":число}],"intimate_with":null}],"dialogue":[{"name":"имя","text":"реплика"}],"world_event":null}`;
+{"npcs":[{"id":число,"action":"до 8 слов","thought":"мысль 1-2 предложения от первого лица","location":"дом/лес/площадь/таверна/библиотека","memory":"воспоминание","hunger_change":0,"energy_change":0,"mood_change":0,"love_change":0,"health_change":0,"log":"яркая запись для хроники","rels":[{"tid":число,"type":"friend/love/rival/spouse/acquaintance","delta":число}],"intimate_with":null}],"dialogue":[{"name":"имя","text":"реплика"}],"world_event":null}`;
 
   try{
-    const raw=await callGroq(prompt);
+    const raw=await callAI(prompt);
     const clean=raw.replace(/```json|```/g,'').trim();
     const data=JSON.parse(clean);
-
     (data.npcs||[]).forEach(d=>{
       const n=npcs[d.id];if(!n||n.dead)return;
       n.thinking=false;
@@ -471,7 +464,6 @@ ${npcStr}
       n.mood=clamp(n.mood+(d.mood_change||0));
       n.love=clamp(n.love+(d.love_change||0));
       n.health=clamp(n.health+(d.health_change||0));
-
       (d.rels||[]).forEach(r=>{
         const t=npcs[r.tid];if(!t)return;
         if(!n.rels[r.tid])n.rels[r.tid]={type:r.type,str:20};
@@ -488,7 +480,6 @@ ${npcStr}
         }
         if(r.type==='rival'&&r.delta>0)floatEmoji(n.id,'⚔️');
       });
-
       if(d.intimate_with){
         const partner=npcs[d.intimate_with];
         const nFem=!['🧔','👨','⚔️','🔮','🛡️'].includes(n.emoji);
@@ -499,14 +490,13 @@ ${npcStr}
         if(mother&&Math.random()<0.55){
           mother.pregnant=true;mother.pregDays=0;mother.pregWith=fatherId;
           const fn=npcs[fatherId];
-          log(`🤰 ${mother.name} и ${fn?.name||'?'} сблизились. Скоро пополнение!`,'love','💕 ЛЮБОВЬ');
+          log(`🤰 ${mother.name} и ${fn?.name||'?'} сблизились!`,'love','💕 ЛЮБОВЬ');
           notify('🤰',`${mother.name} ждёт ребёнка!`,'#c47a9b');
           floatEmoji(mother.id,'💕');
         }
       }
       if(d.log)log(d.log,'act');
     });
-
     if(data.dialogue?.length)showDlg(data.dialogue);
     if(data.world_event){log('🌍 '+data.world_event,'event','🌍 СОБЫТИЕ');notify('🌍',data.world_event);}
     renderAll();
@@ -515,31 +505,27 @@ ${npcStr}
     Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.thinking=false;});
     renderCards();
   }
-
   isLoading=false;
   document.getElementById('btn-tick').disabled=false;
   document.getElementById('spinner').classList.remove('on');
 }
 
 const EVENTS=[
-  {t:'🎉 Праздник урожая! Все выходят на площадь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+18);n.hunger=clamp(n.hunger+12);n.loc='площадь';});}},
+  {t:'🎉 Праздник! Все выходят на площадь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+18);n.hunger=clamp(n.hunger+12);n.loc='площадь';});}},
   {t:'🦠 Эпидемия гриппа...',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.health=clamp(n.health-18);n.energy=clamp(n.energy-12);});}},
-  {t:'🌟 Падающая звезда! Все смотрят на небо!',fn(){const a=Object.values(npcs).filter(n=>!n.dead);if(a.length){const r=a[Math.floor(Math.random()*a.length)];r.mood=clamp(r.mood+25);r.love=clamp(r.love+10);}}},
-  {t:'🔥 Пожар в таверне! Все бегут на помощь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='таверна';n.mood=clamp(n.mood-15);});}},
-  {t:'💎 В лесу нашли клад! Все туда!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='лес';n.mood=clamp(n.mood+20);});}},
-  {t:'🎵 Концерт на площади! Все собираются!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+15);n.loc='площадь';});}},
-  {t:'🐉 Дракон вблизи! Паника на улицах!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood-15);n.health=clamp(n.health-8);});}},
-  {t:'🍺 В таверне бесплатное угощение!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.hunger=clamp(n.hunger+25);n.mood=clamp(n.mood+10);n.loc='таверна';});}}
+  {t:'🌟 Падающая звезда! Все смотрят на небо!',fn(){const a=Object.values(npcs).filter(n=>!n.dead);if(a.length){const r=a[Math.floor(Math.random()*a.length)];r.mood=clamp(r.mood+25);}}},
+  {t:'🔥 Пожар! Все бегут на помощь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='таверна';n.mood=clamp(n.mood-15);});}},
+  {t:'💎 Клад в лесу! Все туда!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='лес';n.mood=clamp(n.mood+20);});}},
+  {t:'🎵 Концерт на площади!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+15);n.loc='площадь';});}},
+  {t:'🐉 Дракон вблизи! Паника!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood-15);});}},
+  {t:'🍺 Бесплатное угощение в таверне!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.hunger=clamp(n.hunger+25);n.loc='таверна';});}}
 ];
 
 async function triggerEvent(){
   if(isLoading)return;
   const ev=EVENTS[Math.floor(Math.random()*EVENTS.length)];
-  ev.fn();
-  log('⚡ '+ev.t,'event','⚡ СОБЫТИЕ');
-  notify('⚡',ev.t);
-  renderAll();
-  await runTick();
+  ev.fn();log('⚡ '+ev.t,'event','⚡ СОБЫТИЕ');notify('⚡',ev.t);
+  renderAll();await runTick();
 }
 
 function toggleAuto(){
@@ -562,7 +548,7 @@ function startWorld(){
   ['btn-tick','btn-auto','btn-ev'].forEach(id=>document.getElementById(id).disabled=false);
   initStars();initNPCs();renderAll();
   log('🌍 Мир ожил. История начинается...','event','🌍 НАЧАЛО');
-  log('Арон и Лира — первые жители. Они пока едва знакомы, но судьба сведёт их вместе.','act');
+  log('Арон и Лира — первые жители. Они пока едва знакомы...','act');
 }
 
 initStars();
