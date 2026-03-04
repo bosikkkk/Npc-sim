@@ -102,12 +102,12 @@ select{background:var(--panel);border:1px solid var(--border);border-radius:3px;
 <div class="api-overlay" id="api-overlay">
   <div class="api-box">
     <h2>🌍 Мир живых душ</h2>
-    <p>Симуляция настоящей жизни.<br>Рождение · Любовь · Дружба · Предательство · Смерть.<br><br>Введи ключ OpenRouter чтобы оживить мир.</p>
+    <p>Симуляция настоящей жизни.<br>Рождение · Любовь · Дружба · Предательство · Смерть.</p>
     <div class="api-row">
       <input class="api-inp" id="api-inp" placeholder="sk-or-... (OpenRouter ключ)">
       <button class="btn btn-gold" onclick="startWorld()">Начать</button>
     </div>
-    <div class="api-note">Бесплатно на <a href="https://openrouter.ai" target="_blank">openrouter.ai</a> · Без карты · Без суточного лимита</div>
+    <div class="api-note">Бесплатно на <a href="https://openrouter.ai" target="_blank">openrouter.ai</a> · Без карты · Без лимита</div>
   </div>
 </div>
 <div class="app">
@@ -164,8 +164,8 @@ const SEASONS=['Весна','Лето','Осень','Зима'];
 const TRAITS=['оптимист','меланхолик','авантюрист','мудрец','романтик','прагматик','мечтатель','скептик','лидер','одиночка'];
 const PROFS=['алхимик','певица','кузнец','ведьма','торговец','рыцарь','повар','художник','лекарь','бард'];
 const NAMES=['Эрин','Кай','Лён','Мира','Рос','Зара','Тай','Ора','Нил','Вей','Сол','Арна','Дейн','Рива','Лан','Тора','Кира','Эль'];
-const EMOJIS_F=['👩','🧙‍♀️','🌸','🌙','⭐'];
-const EMOJIS_M=['🧔','👨','⚔️','🔮','🛡️'];
+const EMOJIS_F=['👩','🌸','🌙','⭐'];
+const EMOJIS_M=['🧔','👨','🔮','🛡️'];
 
 let W={day:1,hour:8,weatherIdx:0,seasonIdx:0,seasonDay:0,nextId:3,logN:0};
 let W_hoursSameWeather=0;
@@ -176,9 +176,11 @@ function clamp(v,mn=0,mx=100){return Math.max(mn,Math.min(mx,v))}
 
 function mkNPC(id,name,prof,trait,emoji,color,age,loc){
   return{id,name,prof,trait,emoji,color,age,loc,
-    hunger:65+Math.random()*25|0,energy:60+Math.random()*30|0,
-    mood:50+Math.random()*35|0,love:15+Math.random()*30|0,
-    health:80+Math.random()*15|0,
+    hunger:65+Math.floor(Math.random()*25),
+    energy:60+Math.floor(Math.random()*30),
+    mood:50+Math.floor(Math.random()*35),
+    love:15+Math.floor(Math.random()*30),
+    health:80+Math.floor(Math.random()*15),
     pregnant:false,pregDays:0,pregWith:null,
     dead:false,thought:'',action:'осматривается',
     memory:[],rels:{},ageDays:0,hoursAtSameLoc:0,lastLoc:loc};
@@ -191,8 +193,8 @@ function initNPCs(){
   };
   npcs[1].rels={2:{type:'acquaintance',str:20}};
   npcs[2].rels={1:{type:'acquaintance',str:20}};
-  npcs[1].memory=['Слышал красивый голос откуда-то с площади'];
-  npcs[2].memory=['Видела задумчивого незнакомца у дома на краю города'];
+  npcs[1].memory=['Слышал красивый голос с площади'];
+  npcs[2].memory=['Видела задумчивого незнакомца у дома'];
 }
 
 function initStars(){
@@ -388,20 +390,34 @@ async function callAI(prompt){
       'Content-Type':'application/json',
       'Authorization':'Bearer '+API_KEY,
       'HTTP-Referer':'https://bosikkkk.github.io',
-      'X-Title':'Мир живых душ'
+      'X-Title':'NPC World'
     },
     body:JSON.stringify({
       model:MODEL,
       messages:[{role:'user',content:prompt}],
-      temperature:0.95,
-      max_tokens:1800
+      temperature:0.9,
+      max_tokens:1500
     })
   });
-  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'HTTP '+r.status);}
   const d=await r.json();
-  const t=d?.choices?.[0]?.message?.content;
-  if(!t)throw new Error('Пустой ответ');
-  return t;
+  if(!r.ok){
+    const msg=(d.error&&d.error.message)||('HTTP '+r.status);
+    throw new Error(msg);
+  }
+  // Обрабатываем разные форматы ответа
+  let text='';
+  if(d.choices&&d.choices[0]){
+    const msg=d.choices[0].message;
+    if(msg&&msg.content){
+      if(typeof msg.content==='string'){
+        text=msg.content;
+      } else if(Array.isArray(msg.content)){
+        text=msg.content.map(p=>p.text||'').join('');
+      }
+    }
+  }
+  if(!text)throw new Error('Пустой ответ от AI');
+  return text;
 }
 
 async function runTick(){
@@ -432,46 +448,50 @@ async function runTick(){
 
 Мир: День ${W.day}, ${tod} (${h}:00), ${WEATHERS[W.weatherIdx]}, ${SEASONS[W.seasonIdx]}
 Где кто: ${grpStr}
-${stuck?'⚠️ ЗАСТРЯЛИ (срочно двигай!): '+stuck:''}
+${stuck?'ЗАСТРЯЛИ — срочно двигай: '+stuck:''}
 
 ПЕРСОНАЖИ:
 ${npcStr}
 
-ПРАВИЛА (строго):
-1. Кто сидит на месте 2+ часа — ОБЯЗАН сменить локацию прямо сейчас
-2. Если двое в одном месте — они ОБЯЗАНЫ взаимодействовать
-3. Погода НЕ повод сидеть дома — в любую погоду люди выходят
-4. Запрещено повторять одно действие дважды подряд
-5. Каждые 3-4 хода — драматический поворот (ссора, признание, тайна, предательство)
-6. Оптимист тянет других за собой, меланхолик грустит но всё равно действует
+ПРАВИЛА:
+1. Кто на одном месте 2+ часа — ОБЯЗАН сменить локацию
+2. Если двое вместе — ОБЯЗАНЫ взаимодействовать
+3. Погода не повод сидеть дома
+4. Не повторять действие дважды подряд
+5. Каждые 3-4 хода — драматический поворот
 
-Верни ТОЛЬКО валидный JSON без markdown:
-{"npcs":[{"id":число,"action":"до 8 слов","thought":"мысль 1-2 предложения от первого лица","location":"дом/лес/площадь/таверна/библиотека","memory":"воспоминание","hunger_change":0,"energy_change":0,"mood_change":0,"love_change":0,"health_change":0,"log":"яркая запись для хроники","rels":[{"tid":число,"type":"friend/love/rival/spouse/acquaintance","delta":число}],"intimate_with":null}],"dialogue":[{"name":"имя","text":"реплика"}],"world_event":null}`;
+Верни ТОЛЬКО валидный JSON без markdown, без комментариев:
+{"npcs":[{"id":1,"action":"текст","thought":"текст","location":"площадь","memory":"текст","hunger_change":0,"energy_change":0,"mood_change":0,"love_change":0,"health_change":0,"log":"текст","rels":[{"tid":2,"type":"friend","delta":5}],"intimate_with":null}],"dialogue":[{"name":"имя","text":"реплика"}],"world_event":null}`;
 
   try{
     const raw=await callAI(prompt);
-    const clean=raw.replace(/```json|```/g,'').trim();
-    const data=JSON.parse(clean);
+    // Ищем JSON в ответе
+    let jsonStr=raw.trim();
+    const jsonMatch=jsonStr.match(/\{[\s\S]*\}/);
+    if(jsonMatch)jsonStr=jsonMatch[0];
+    const data=JSON.parse(jsonStr);
+
     (data.npcs||[]).forEach(d=>{
       const n=npcs[d.id];if(!n||n.dead)return;
       n.thinking=false;
-      n.action=d.action||n.action;
-      n.thought=d.thought||'';
-      if(LOC_KEYS.includes(d.location))n.loc=d.location;
+      if(d.action)n.action=d.action;
+      if(d.thought)n.thought=d.thought;
+      if(d.location&&LOC_KEYS.includes(d.location))n.loc=d.location;
       if(d.memory){n.memory.push(d.memory);if(n.memory.length>8)n.memory.shift();}
-      n.hunger=clamp(n.hunger+(d.hunger_change||0));
-      n.energy=clamp(n.energy+(d.energy_change||0));
-      n.mood=clamp(n.mood+(d.mood_change||0));
-      n.love=clamp(n.love+(d.love_change||0));
-      n.health=clamp(n.health+(d.health_change||0));
+      n.hunger=clamp(n.hunger+(Number(d.hunger_change)||0));
+      n.energy=clamp(n.energy+(Number(d.energy_change)||0));
+      n.mood=clamp(n.mood+(Number(d.mood_change)||0));
+      n.love=clamp(n.love+(Number(d.love_change)||0));
+      n.health=clamp(n.health+(Number(d.health_change)||0));
       (d.rels||[]).forEach(r=>{
+        if(!r||!r.tid)return;
         const t=npcs[r.tid];if(!t)return;
-        if(!n.rels[r.tid])n.rels[r.tid]={type:r.type,str:20};
-        n.rels[r.tid].type=r.type;
-        n.rels[r.tid].str=clamp(n.rels[r.tid].str+(r.delta||0),0,100);
-        if(!t.rels[n.id])t.rels[n.id]={type:r.type,str:20};
-        t.rels[n.id].type=r.type;
-        t.rels[n.id].str=clamp(t.rels[n.id].str+(r.delta||0),0,100);
+        if(!n.rels[r.tid])n.rels[r.tid]={type:r.type||'friend',str:20};
+        n.rels[r.tid].type=r.type||'friend';
+        n.rels[r.tid].str=clamp(n.rels[r.tid].str+(Number(r.delta)||0),0,100);
+        if(!t.rels[n.id])t.rels[n.id]={type:r.type||'friend',str:20};
+        t.rels[n.id].type=r.type||'friend';
+        t.rels[n.id].str=clamp(t.rels[n.id].str+(Number(r.delta)||0),0,100);
         if(r.type==='love'&&r.delta>0)floatEmoji(n.id,'💕');
         if(r.type==='spouse'){
           log(`💍 ${n.name} и ${t.name} поженились!`,'love','💍 СВАДЬБА');
@@ -482,8 +502,8 @@ ${npcStr}
       });
       if(d.intimate_with){
         const partner=npcs[d.intimate_with];
-        const nFem=!['🧔','👨','⚔️','🔮','🛡️'].includes(n.emoji);
-        const pFem=partner&&!['🧔','👨','⚔️','🔮','🛡️'].includes(partner.emoji);
+        const nFem=['👩','🌸','🌙','⭐'].includes(n.emoji);
+        const pFem=partner&&['👩','🌸','🌙','⭐'].includes(partner.emoji);
         let mother=null,fatherId=null;
         if(nFem&&!n.pregnant&&n.age>=16&&n.age<45){mother=n;fatherId=d.intimate_with;}
         else if(partner&&pFem&&!partner.pregnant&&partner.age>=16&&partner.age<45){mother=partner;fatherId=n.id;}
@@ -497,11 +517,14 @@ ${npcStr}
       }
       if(d.log)log(d.log,'act');
     });
-    if(data.dialogue?.length)showDlg(data.dialogue);
-    if(data.world_event){log('🌍 '+data.world_event,'event','🌍 СОБЫТИЕ');notify('🌍',data.world_event);}
+    if(data.dialogue&&data.dialogue.length)showDlg(data.dialogue);
+    if(data.world_event&&typeof data.world_event==='string'){
+      log('🌍 '+data.world_event,'event','🌍 СОБЫТИЕ');
+      notify('🌍',data.world_event);
+    }
     renderAll();
   }catch(err){
-    log('⚠️ '+err.message,'act');
+    log('⚠️ '+String(err.message||err),'act');
     Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.thinking=false;});
     renderCards();
   }
@@ -511,11 +534,11 @@ ${npcStr}
 }
 
 const EVENTS=[
-  {t:'🎉 Праздник! Все выходят на площадь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+18);n.hunger=clamp(n.hunger+12);n.loc='площадь';});}},
+  {t:'🎉 Праздник! Все на площадь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+18);n.hunger=clamp(n.hunger+12);n.loc='площадь';});}},
   {t:'🦠 Эпидемия гриппа...',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.health=clamp(n.health-18);n.energy=clamp(n.energy-12);});}},
-  {t:'🌟 Падающая звезда! Все смотрят на небо!',fn(){const a=Object.values(npcs).filter(n=>!n.dead);if(a.length){const r=a[Math.floor(Math.random()*a.length)];r.mood=clamp(r.mood+25);}}},
-  {t:'🔥 Пожар! Все бегут на помощь!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='таверна';n.mood=clamp(n.mood-15);});}},
-  {t:'💎 Клад в лесу! Все туда!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='лес';n.mood=clamp(n.mood+20);});}},
+  {t:'🌟 Падающая звезда!',fn(){const a=Object.values(npcs).filter(n=>!n.dead);if(a.length){const r=a[Math.floor(Math.random()*a.length)];r.mood=clamp(r.mood+25);}}},
+  {t:'🔥 Пожар! Все в таверну!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='таверна';n.mood=clamp(n.mood-15);});}},
+  {t:'💎 Клад в лесу!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.loc='лес';n.mood=clamp(n.mood+20);});}},
   {t:'🎵 Концерт на площади!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood+15);n.loc='площадь';});}},
   {t:'🐉 Дракон вблизи! Паника!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.mood=clamp(n.mood-15);});}},
   {t:'🍺 Бесплатное угощение в таверне!',fn(){Object.values(npcs).filter(n=>!n.dead).forEach(n=>{n.hunger=clamp(n.hunger+25);n.loc='таверна';});}}
